@@ -1,0 +1,726 @@
+#include "appmainmsgqueue.h"
+#include "user_config.h"
+#include "cJSON.h"
+#include "user_uart.h"
+#include "zigbeeparse.h"
+#include "base64.h"
+#include "rs485_uart.h"
+#include "MICO.h"
+#include "common.h"
+#define appqueue_log(M, ...) custom_log("appqueue", M, ##__VA_ARGS__)
+#define appqueue_log_trace() custom_log_trace("appqueue")
+
+static app_msg_queue_t  app_msg_queue_context[APP_MSG_QUEUE_MAX]={0};
+
+extern unsigned char *base64_encode(const unsigned char *src, int len, int *out_len);
+extern void process_recv_data(char *data, uint32_t len);
+extern unsigned char Xlink_PassThroughProtolBuildXor(unsigned char resold,unsigned char *data,unsigned int datalen);
+extern void HexDump(uint8_t * pdata, uint32_t data_len);
+extern void  sendMessageToServer(char *pbuffer, int32_t buffer_len, uint32_t deviceid);
+extern OSStatus uart_zigbee_msg_dispatch(cJSON *root, int *code);
+extern int32_t Rs485_SendData(uint8_t *data, uint16_t length);
+
+static OSStatus zigbee_command_send(char *pCmd, uint32_t cmd_len,uint8_t riu);
+
+/*
+	Description: store all come from fogcloud message.
+*/
+static OSStatus app_msg_queue_init(app_msg_queue_t *pMsgQueue, uint8_t queue_max)
+{
+	OSStatus err = kUnknownErr;
+
+	if(NULL == pMsgQueue->msg_mutex)
+	{
+		err = mico_rtos_init_mutex(&pMsgQueue->msg_mutex);
+		require_noerr_action(err, exit, appqueue_log("ERROR: mico_rtos_init_mutex (msg_mutex) failed, err=%d.", err));
+	}
+	err = mico_rtos_init_queue(&pMsgQueue->msg_queue, "fog_msg_queue", sizeof(int), queue_max);
+	require_noerr_action(err, exit, appqueue_log("ERROR: mico_rtos_init_queue (msg_queue) failed, err=%d", err));
+
+	return err;
+
+exit:
+	appqueue_log("fogcloud_main_thread exit err=%d.", err);
+	if(NULL != pMsgQueue->msg_mutex){
+		mico_rtos_deinit_mutex(&pMsgQueue->msg_mutex);
+	}
+	if(NULL != pMsgQueue->msg_queue){
+		mico_rtos_deinit_queue(&pMsgQueue->msg_queue);
+	}
+
+	return err;
+}
+
+
+//*******************************  recv msg queue *******************************************
+OSStatus pushAppMainRecvMsgProcess(unsigned char *msg, unsigned int inBufLen, int riu)
+{
+	OSStatus err = kUnknownErr;
+	uint32_t real_msg_len;
+	app_main_msg_t *real_msg;
+	app_main_msg_t *p_tem_msg = NULL;  // msg pointer
+
+	real_msg_len = sizeof(app_main_msg_t) + inBufLen+1;
+	
+	real_msg = (app_main_msg_t*)malloc(real_msg_len);
+	if (real_msg == NULL)
+	{
+		appqueue_log("kNoMemoryErr2");
+		return kNoMemoryErr;
+	}
+
+	memset(real_msg, '\0', real_msg_len);
+	memcpy(real_msg->data, msg, inBufLen);
+	real_msg->data_len = inBufLen;
+	real_msg->riu = riu;
+
+	if(NULL != app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_queue)
+	{
+		mico_rtos_lock_mutex(&app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_mutex);
+		if(mico_rtos_is_queue_full(&app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_queue))
+		{
+			appqueue_log("WARNGING: Recv msg overrun, abandon old messages!");
+			err = mico_rtos_pop_from_queue(&app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_queue, &p_tem_msg, 0);  // just pop old msg pointer from queue 
+			if(kNoErr == err)
+			{
+				if(NULL != p_tem_msg)
+				{  // delete msg, free msg memory
+					free(p_tem_msg);
+					p_tem_msg = NULL;
+				}
+			}
+			else
+			{
+				appqueue_log("WARNGING: FogCloud msg overrun, abandon current message!");
+				if(NULL != real_msg)
+				{  // queue full, new msg abandoned
+					free(real_msg);
+					real_msg = NULL;
+				}
+				mico_rtos_unlock_mutex(&app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_mutex);
+				return kOverrunErr;
+			}
+		}
+
+		// insert a msg into recv queue
+		if (kNoErr != mico_rtos_push_to_queue(&app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_queue, &real_msg, 10))
+		{  // just push msg pointer in queue
+			free(real_msg);
+			real_msg = NULL;
+			err = kWriteErr;
+			appqueue_log("kWriteErr");
+		}
+		else
+		{
+			err = kNoErr;
+		}
+		mico_rtos_unlock_mutex(&app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_mutex);
+	}
+	else
+	{
+		if(NULL != real_msg)
+		{
+			free(real_msg);
+			real_msg = NULL;
+		}
+		
+		return kNotInitializedErr;
+	}
+
+	return err;
+}
+
+// recv msg from queue
+static OSStatus appMainQueueMsgRecv(app_context_t* const context, app_main_msg_t **msg, uint32_t timeout_ms)
+{
+	OSStatus err = kUnknownErr;
+
+	if(NULL == msg){
+		return kParamErr;
+	}
+
+	if(NULL != app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_queue)
+	{
+		//mico_rtos_lock_mutex(&app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_mutex);
+		//if(mico_rtos_is_queue_empty(&app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_queue))
+		//{
+			//mico_rtos_unlock_mutex(&app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_mutex);
+		//	return kUnderrunErr;
+		//}
+		err = mico_rtos_pop_from_queue(&app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_queue, msg, timeout_ms);  // just pop msg pointer from queue
+		//mico_rtos_unlock_mutex(&app_msg_queue_context[APP_RECV_MSG_QUEUE].msg_mutex);
+		//if(kNoErr == err){
+			//total_recv_buf_len -= (sizeof(fogcloud_msg_t) - 1 + (*msg)->topic_len + (*msg)->data_len);
+		//}
+	}
+	else
+	{
+		err = kNotInitializedErr;
+	}
+
+	return err;
+}
+
+static OSStatus zigbee_command_send(char *pCmd, uint32_t cmd_len, uint8_t riu)
+{
+	OSStatus err = kUnknownErr;
+	if(NULL == pCmd)
+	{	
+		appqueue_log("NULL == pCmd");
+		return err;
+	}
+
+	//appqueue_log("riu=%d \n", riu);
+	if(riu == 1)
+	{
+		err = user_uartSend((unsigned char*)pCmd, cmd_len);
+		if(kNoErr != err)
+		{
+			appqueue_log("ERROR: mico_cloudmsg_dispatch error, err=%d", err);
+			return err;
+		}
+	}
+	else
+	{
+		err = Rs485_SendData((uint8_t *)pCmd, cmd_len);		
+		mico_rtos_thread_msleep(100);
+	}
+
+	return err;
+}
+
+void popAppMainRecvMsgThread(mico_thread_arg_t arg)
+{
+	OSStatus err = kUnknownErr;
+	app_main_msg_t *recv_msg = NULL;
+	app_context_t *app_context = (app_context_t *)arg;
+	require_action(app_context, exit, err=kParamErr);
+
+	while(USER_NUMBER_VAL_1)
+	{
+		err = appMainQueueMsgRecv(app_context, &recv_msg, MICO_WAIT_FOREVER);
+		if(kNoErr == err)
+		{
+			  zigbee_command_send(recv_msg->data, recv_msg->data_len, recv_msg->riu);
+			  if(kNoErr != err)
+			  {
+				appqueue_log("ERROR: mico_cloudmsg_dispatch error, err=%d", err);
+			  }
+
+			  // NOTE: msg memory must be free after been used.
+			  if(NULL != recv_msg)
+			  {
+				free(recv_msg);
+				recv_msg = NULL;
+			  }
+		}
+	}
+
+exit:
+	appqueue_log("ERROR: popAppMainRecvMsgThread exit with err=%d", err);
+	return;
+}
+
+//*******************************  recv msg queue  end *******************************************
+
+
+//*******************************  send msg queue *******************************************
+	
+OSStatus pushSend2ServerMsgProcess(unsigned char *msg, unsigned int inBufLen, uint32_t device_id)
+{
+
+	OSStatus err = kUnknownErr;
+        uint32_t real_msg_len;
+	app_main_msg_t *real_msg;
+	app_main_msg_t *p_tem_msg = NULL;  // msg pointer
+	
+	real_msg_len = sizeof(app_main_msg_t) + inBufLen+USER_NUMBER_VAL_1;
+
+	real_msg = (app_main_msg_t*)malloc(real_msg_len+6);
+	if (real_msg == NULL)
+	{
+		appqueue_log("kNoMemoryErr2");
+		return kNoMemoryErr;
+	}
+
+	memset(real_msg, USER_DATA_INIT_DEFAULT_ZERO, real_msg_len+6);
+	memcpy(real_msg->data, msg, inBufLen);
+	real_msg->data_len = inBufLen;
+	real_msg->deviceid = device_id;
+		
+	if(NULL != app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_queue)
+	{
+		mico_rtos_lock_mutex(&app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_mutex);
+		if(mico_rtos_is_queue_full(&app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_queue))
+		{
+			appqueue_log("WARNGING: FogCloud msg overrun, abandon old messages!");
+				err = mico_rtos_pop_from_queue(&app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_queue, &p_tem_msg, USER_NUMBER_VAL_30);  // just pop old msg pointer from queue 
+				if(kNoErr == err)
+				{
+					if(NULL != p_tem_msg)
+					{  // delete msg, free msg memory
+						free(p_tem_msg);
+						p_tem_msg = NULL;
+					}
+				}
+				else
+				{
+				appqueue_log("WARNGING: FogCloud msg overrun, abandon current message!");
+					if(NULL != real_msg)
+					{  // queue full, new msg abandoned
+						free(real_msg);
+						real_msg = NULL;
+					}
+					mico_rtos_unlock_mutex(&app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_mutex);
+					return kOverrunErr;
+				}
+		}
+		
+		// insert a msg into recv queue
+		if (kNoErr != mico_rtos_push_to_queue(&app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_queue, &real_msg, USER_NUMBER_VAL_0))
+		{  // just push msg pointer in queue
+			free(real_msg);
+			real_msg = NULL;
+			err = kWriteErr;
+			appqueue_log("kWriteErr");
+		}
+		else
+		{
+			err = kNoErr;
+		}
+		mico_rtos_unlock_mutex(&app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_mutex);
+	}
+	else
+	{
+		if(NULL != real_msg)
+		{
+			free(real_msg);
+			real_msg = NULL;
+		}
+		
+		return kNotInitializedErr;
+	}
+
+	return err;
+}
+
+// recv msg from queue
+static OSStatus popAppMainQueueMsgSend2Server(app_context_t* const context, app_main_msg_t **msg, uint32_t timeout_ms)
+{
+	OSStatus err = kUnknownErr;
+
+	if(NULL == msg){
+		return kParamErr;
+	}
+
+	if(NULL != app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_queue)
+	{
+		//mico_rtos_lock_mutex(&app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_mutex);
+		//if(mico_rtos_is_queue_empty(&app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_queue))
+		//{
+			//mico_rtos_unlock_mutex(&app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_mutex);
+		//	return kUnderrunErr;
+		//}
+		err = mico_rtos_pop_from_queue(&app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_queue, msg, timeout_ms);  // just pop msg pointer from queue
+		//mico_rtos_unlock_mutex(&app_msg_queue_context[APP_SEND_MSG_QUEUE].msg_mutex);
+		//if(kNoErr == err){
+			//total_recv_buf_len -= (sizeof(fogcloud_msg_t) - 1 + (*msg)->topic_len + (*msg)->data_len);
+		//}
+	}
+	else
+	{
+		err = kNotInitializedErr;
+	}
+
+	return err;
+}
+
+
+
+void popAppMainSendMsgThread(mico_thread_arg_t arg)
+{
+	OSStatus err = kUnknownErr;
+	app_main_msg_t *recv_msg = NULL;
+   	static long int time=0;
+	UNUSED_PARAMETER( arg );
+
+	//while(USER_NUMBER_VAL_1)
+	{
+		if((mico_rtos_get_time() -time)>=50)// 150ms ,  Too soon causing server error
+		{
+			time = mico_rtos_get_time();
+			
+				err = popAppMainQueueMsgSend2Server(NULL, &recv_msg, 20);
+				if(kNoErr == err)
+				{
+				//	appqueue_log("pop send msg: data[%d]=[%s]",  recv_msg->data_len, recv_msg->data );
+					sendMessageToServer(recv_msg->data, recv_msg->data_len, recv_msg->deviceid);
+					// NOTE: msg memory must be free after been used.
+					if(NULL != recv_msg)
+					{
+						free(recv_msg);
+						recv_msg = NULL;
+					}
+				}
+		}
+		else if(mico_rtos_get_time() <=time)
+		{
+			time = mico_rtos_get_time();
+		}
+
+	}	
+	return;
+}
+
+
+OSStatus pushFlogMsg2FlogCloudQueue(unsigned char *msg, unsigned int inBufLen, uint32_t device_id)
+{
+
+	OSStatus err = kUnknownErr;
+        uint32_t real_msg_len;
+	app_main_msg_t *real_msg;
+	app_main_msg_t *p_tem_msg = NULL;  // msg pointer
+	
+	real_msg_len = sizeof(app_main_msg_t) + inBufLen+USER_NUMBER_VAL_1;
+
+	real_msg = (app_main_msg_t*)malloc(real_msg_len+6);
+	if (real_msg == NULL)
+	{
+		appqueue_log("kNoMemoryErr2");
+		return kNoMemoryErr;
+	}
+
+	memset(real_msg, USER_DATA_INIT_DEFAULT_ZERO, real_msg_len+6);
+	memcpy(real_msg->data, msg, inBufLen);
+	real_msg->data_len = inBufLen;
+	real_msg->deviceid = device_id;
+		
+	if(NULL != app_msg_queue_context[APP_RECV_FOGCLOUD_MSG_QUEUE].msg_queue)
+	{
+		mico_rtos_lock_mutex(&app_msg_queue_context[APP_RECV_FOGCLOUD_MSG_QUEUE].msg_mutex);
+		if(mico_rtos_is_queue_full(&app_msg_queue_context[APP_RECV_FOGCLOUD_MSG_QUEUE].msg_queue))
+		{
+
+		
+			appqueue_log("11WARNGING: FogCloud msg overrun, abandon old messages!");
+			while(1){
+				err = mico_rtos_pop_from_queue(&app_msg_queue_context[APP_RECV_FOGCLOUD_MSG_QUEUE].msg_queue, &p_tem_msg, USER_NUMBER_VAL_30);  // just pop old msg pointer from queue 
+				if(kNoErr == err)
+				{
+					if(NULL != p_tem_msg)
+					{  // delete msg, free msg memory
+						free(p_tem_msg);
+						p_tem_msg = NULL;
+					}
+				}
+				else
+				{
+					//appqueue_log("WARNGING: FogCloud msg overrun, abandon current message2!");
+					if(NULL != real_msg)
+					{  // queue full, new msg abandoned
+						free(real_msg);
+						real_msg = NULL;
+					}
+					mico_rtos_unlock_mutex(&app_msg_queue_context[APP_RECV_FOGCLOUD_MSG_QUEUE].msg_mutex);
+					return kOverrunErr;
+				}
+				if(mico_rtos_is_queue_empty(&app_msg_queue_context[APP_RECV_FOGCLOUD_MSG_QUEUE].msg_queue))
+                                  break;
+
+			}
+		}
+		
+		// insert a msg into recv queue
+		if (kNoErr != mico_rtos_push_to_queue(&app_msg_queue_context[APP_RECV_FOGCLOUD_MSG_QUEUE].msg_queue, &real_msg, USER_NUMBER_VAL_0))
+		{  // just push msg pointer in queue
+			free(real_msg);
+			real_msg = NULL;
+			err = kWriteErr;
+			appqueue_log("kWriteErr");
+		}
+		else
+		{
+			err = kNoErr;
+		}
+		mico_rtos_unlock_mutex(&app_msg_queue_context[APP_RECV_FOGCLOUD_MSG_QUEUE].msg_mutex);
+	}
+	else
+	{
+		if(NULL != real_msg)
+		{
+			free(real_msg);
+			real_msg = NULL;
+		}
+		
+		return kNotInitializedErr;
+	}
+
+	return err;
+}
+
+// recv msg from queue
+/*static*/ OSStatus popFlogCloudQueueMsgSend2Parse(app_context_t* const context, app_main_msg_t **msg, uint32_t timeout_ms)
+{
+	OSStatus err = kUnknownErr;
+
+	if(NULL == msg){
+		return kParamErr;
+	}
+
+	if(NULL != app_msg_queue_context[APP_RECV_FOGCLOUD_MSG_QUEUE].msg_queue)
+	{
+
+		err = mico_rtos_pop_from_queue(&app_msg_queue_context[APP_RECV_FOGCLOUD_MSG_QUEUE].msg_queue, msg, timeout_ms);  // just pop msg pointer from queue
+	}
+	else
+	{
+		err = kNotInitializedErr;
+	}
+
+	return err;
+}
+
+
+
+void popRecvFromFlogCloudMsgThread(mico_thread_arg_t arg)
+{
+	OSStatus err = kUnknownErr;
+	app_main_msg_t *recv_msg = NULL;
+   	static long int time=0;
+	UNUSED_PARAMETER( arg );
+
+	while(USER_NUMBER_VAL_1)
+	{
+		if((mico_rtos_get_time() -time)>=100)// 100ms ,  Too soon causing server error
+		{
+			time = mico_rtos_get_time();
+			
+				err = popFlogCloudQueueMsgSend2Parse(NULL, &recv_msg, 20);
+				if(kNoErr == err)
+				{
+					//appqueue_log("pop send msg: data[%d]=[%s]",  recv_msg->data_len, recv_msg->data );
+					parseServerMessage(recv_msg->data, recv_msg->data_len, recv_msg->deviceid);
+					// NOTE: msg memory must be free after been used.
+					if(NULL != recv_msg)
+					{
+						free(recv_msg);
+						recv_msg = NULL;
+					}
+				}
+		}
+		else if(mico_rtos_get_time() <=time)
+		{
+			time = mico_rtos_get_time();
+		}
+
+
+	}	
+	return;
+}
+
+static inline unsigned short rs485_ChangeEndian(unsigned short value)
+{
+	unsigned short out_value = USER_NUMBER_VAL_0;
+	out_value = (unsigned char)(value>>USER_NUMBER_VAL_8);
+	out_value |= (value<<USER_NUMBER_VAL_8)&USER_NUMBER_VAL_0XFF00;
+	return out_value;
+}
+
+/*
+function:转化16进制的char 类型字符为ASCII码
+input :	data 输入，char 类型字符串etc: "AA" or "0xAA"
+output:	value，ASCII 码
+*/
+static inline unsigned int rs485_charchangehex( unsigned char *data , unsigned char* value )
+{
+        unsigned char *p;
+        unsigned char i, j;
+        unsigned char num = 0;
+        unsigned char date = 0;
+        p = data;
+        if(( p[USER_NUMBER_VAL_0] == '0' ) && (( p[USER_NUMBER_VAL_1] == 'x') || ( p[USER_NUMBER_VAL_1] == 'X' ) ))
+                p = p+USER_NUMBER_VAL_2;
+        i = USER_NUMBER_VAL_0;
+        for( j = USER_NUMBER_VAL_0; j < USER_NUMBER_VAL_2; j++ )
+        {
+                if((( *p >= '0' ) && ( *p <= '9' )) || ((( *p >= 'a' ) && ( *p <= 'f' )) || (( *p >= 'A' ) && ( *p <= 'F' ))))
+                {
+                        if(( *p >= '0' ) && (*p <= '9' ))
+                        {
+                                num = *p - '0' ;
+                        }
+                        else
+                        {
+                                num =  toupper( *p ) - 'A'+USER_NUMBER_VAL_10 ;
+                        }
+
+                }
+                else
+                {
+                        appqueue_log("Input error Hex character %s\n", data );
+                        return USER_NUMBER_VAL_1;
+                }
+                if( i == USER_NUMBER_VAL_0 )
+                {
+                        date = num << USER_NUMBER_VAL_4;
+                }
+                else
+                {
+                        date = date + num;
+                }
+                i++;
+                p++;
+
+        }
+		
+        *value = date;
+        return USER_NUMBER_VAL_0;
+
+}
+
+void zigbee_request_all_device_mac(uint16_t nwid)
+{
+	KEY_BUTTON_CTRL_PARAM_T  ctrlparam;
+	memset(&ctrlparam, 0, sizeof(KEY_BUTTON_CTRL_PARAM_T));
+
+	memset(ctrlparam.cmd, 0, sizeof(ctrlparam.cmd));
+	sprintf(ctrlparam.cmd, "cus device discovery start 0 1 3 \r\n send 0x%04X 1 1 \r\n", nwid);
+	ctrlparam.inBufLen = strlen(ctrlparam.cmd);
+	pushAppMainRecvMsgProcess( (unsigned char *)ctrlparam.cmd, ctrlparam.inBufLen, 1);
+}
+
+
+static inline int send_ConvertFromZigbeeData2Rs485(cJSON *root)
+{
+ 	int32_t  i;
+ 	uint16_t str_len,bytesLen, send_data_len,datalen;
+	cJSON *objectValue;
+	uint8_t tmp[256];
+	uint8_t ids_buff[256];
+	
+	objectValue = cJSON_GetObjectItem(root, "t");
+	if(objectValue && objectValue->valueint  == 15)
+	{
+		objectValue = cJSON_GetObjectItem(root, "rs485");
+		if(objectValue && objectValue->valuestring  != NULL)
+		{
+			memset(tmp, USER_NUMBER_VAL_0, sizeof(tmp));
+			memset(ids_buff, USER_NUMBER_VAL_0, sizeof(ids_buff));
+			str_len = strlen(objectValue->valuestring);
+			if(str_len > 255)str_len=255;
+			memcpy(tmp, objectValue->valuestring, str_len);
+	
+			bytesLen = str_len/USER_NUMBER_VAL_2;
+
+			send_data_len = 0;
+			ids_buff[send_data_len++]=RS485_HEADER1;
+			ids_buff[send_data_len++]=RS485_HEADER2;
+			ids_buff[send_data_len++]=RS485_HEADER3;
+
+			datalen = bytesLen+1;
+			datalen = rs485_ChangeEndian(datalen);
+			memcpy(ids_buff+send_data_len, &datalen, 2);
+			send_data_len += 2;
+			
+			for( i = USER_NUMBER_VAL_0; i < bytesLen ; i++ )
+			{
+				rs485_charchangehex( &tmp[i*USER_NUMBER_VAL_2] , &ids_buff[send_data_len+i] );
+			}
+
+			send_data_len += bytesLen;
+
+			pushAppMainRecvMsgProcess( (unsigned char *)ids_buff, send_data_len, 0);
+			return 0;
+		}
+	}
+
+	return -1;
+}
+
+//*******************************  recv msg queue  end *******************************************
+static void uart_recv_thread(mico_thread_arg_t arg)
+{
+	UNUSED_PARAMETER( arg );
+	uint8_t *pRecvbuff=NULL;
+	uint32_t recv_len=0;
+	cJSON *root = NULL;
+
+	pRecvbuff = malloc(READ_UART_BUFFER_LENGTH+1);
+	if(NULL == pRecvbuff)
+		return;
+
+	memset(pRecvbuff, 0, READ_UART_BUFFER_LENGTH+1);
+	mico_rtos_thread_sleep(5);
+	zigbee_request_all_device_mac(0xFFFF);
+	
+	while(USER_NUMBER_VAL_1)
+	{
+		recv_len = RecvUartPkt((char *)pRecvbuff, READ_UART_BUFFER_LENGTH);
+		if(recv_len > USER_NUMBER_VAL_0)
+		{
+			if(recv_len > READ_UART_BUFFER_LENGTH)
+				recv_len = READ_UART_BUFFER_LENGTH;
+
+#ifdef USER_DEBUG_
+		//	appqueue_log("uart2_recv_data: [%d][%s]", recv_len,  (char*)pRecvbuff);
+#endif			
+			root = cJSON_Parse((char *)pRecvbuff);
+			 if(root != NULL)
+			 {
+			 	if(send_ConvertFromZigbeeData2Rs485(root) <= 0)
+			 	{
+			 		uart_zigbee_msg_insertinto_queue(root);
+			 	}
+				else
+				{
+					cJSON_Delete(root);
+					root = NULL;
+				}
+			 }
+			 else
+			 {
+				appqueue_log("val is not json format......\n");
+				appqueue_log("uart2_recv_data: [%d][%s]", recv_len,  (char*)pRecvbuff);
+			 }
+			
+		}
+
+		memset(pRecvbuff, USER_NUMBER_VAL_0, READ_UART_BUFFER_LENGTH);
+
+	}
+
+}
+
+
+OSStatus app_recv_send_msg_queue_init(app_context_t * const app_context)
+{
+	OSStatus err = kUnknownErr;
+
+	memset(&app_msg_queue_context[APP_RECV_MSG_QUEUE], 0, sizeof(app_msg_queue_t));
+	memset(&app_msg_queue_context[APP_SEND_MSG_QUEUE], 0, sizeof(app_msg_queue_t));
+	memset(&app_msg_queue_context[APP_SEND_MSG_QUEUE], 0, sizeof(app_msg_queue_t));
+
+	app_msg_queue_init(&app_msg_queue_context[APP_RECV_MSG_QUEUE], 35);//recv msg queue
+	app_msg_queue_init(&app_msg_queue_context[APP_SEND_MSG_QUEUE], 35);//send msg queue
+	app_msg_queue_init(&app_msg_queue_context[APP_RECV_FOGCLOUD_MSG_QUEUE], 20);//recv cloud msg queue
+
+
+
+	    /* Start cycle read uart data thread */
+	 err = mico_rtos_create_thread(NULL, MICO_APPLICATION_PRIORITY, "uart_recv", 
+	    			uart_recv_thread, 0x2000, (uint32_t)app_context);
+	require_noerr_string( err, exit, "ERROR: Unable to start the uart_recv_thread" );
+
+	//cycle recv from fogcloud message queue and dispatch to uart
+ 	 err = mico_rtos_create_thread(NULL, MICO_APPLICATION_PRIORITY, "RecvFogMsgThread", 
+                                popAppMainRecvMsgThread, 0x500, (uint32_t)app_context );
+	require_noerr_string( err, exit, "ERROR: Unable to start the RecvFogMsgThread" );
+	
+
+	return err;
+	
+ exit:
+	mico_rtos_delete_thread( NULL );    
+	return err;
+}
+

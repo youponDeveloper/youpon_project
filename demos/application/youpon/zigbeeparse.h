@@ -1,0 +1,289 @@
+#ifndef  __ZIGBEEPARSE_H_
+#define  __ZIGBEEPARSE_H_
+
+/**
+******************************************************************************
+* @file    zigbeeparse.h
+* @author  hehx_ybzn@163.com
+* @version V1.0.0
+* @date    12-oct-2016
+* @brief   zigbee device function control api and define.
+******************************************************************************
+* @attention
+*
+******************************************************************************
+*/
+
+#include "MICO.h"
+#include "cJSON.h"
+#include "user_main.h"
+
+#define   PANEL_BUTTON_LED_OFF   0
+#define   PANEL_BUTTON_LED_ON   1
+
+#define  ZIGBEE_NCLU_JOIN_NWK   0x0013
+#define  ZIGBEE_NULU_DEVICE_REPORT_STATE    0XFC00
+#define  ZIGBEE_NCLU_QUIT_JOIN_NWK   0x8034
+#define  ZIGBEE_NCLU_REQUEST_NET_ADDR   0x8000
+#define  ZIGBEE_NCLU_REQUEST_MAC_ADDR   0x8001
+#define  ZIGBEE_NCLU_REQUEST_STATE   0x0008
+#define  ZIGBEE_NCLU_SWITCH_STATE_REPORT   0x0006
+#define  ZIGBEE_NCLU_SCENE_CLUSTER   0x0005
+
+#define  ZIGBEE_NCLU_STATE_REPORT   0x0000
+#define  RS485_DEVICE_REPORT_STATE   0xFC00
+#define   RS485_CTRL_ATTR_ID			(0x0000)
+
+#define  ZIGBEE_NCLU_SENSOR_BEAM_ATTR   0x0400//亮度
+#define  ZIGBEE_NCLU_SENSOR_TEMP_ATTR   0x0402//温度
+#define  ZIGBEE_NCLU_SENSOR_HUMIDITY_ATTR   0x0405//湿度
+#define  ZIGBEE_NCLU_SENSOR_ATTR_REPORT   0x0406//红外感应
+#define  SENSOR_GAS_PILE_ID				(0xFC01)
+
+//zigbee device dest id define
+#define 	ZB_DEST_ID_WARM_WIND	1
+#define 	ZB_DEST_ID_COOL_WIND		3
+#define 	ZB_DEST_ID_SWING_WIND	2
+#define 	ZB_DEST_ID_LIGHT_WARM     1
+#define 	ZB_DEST_ID_LIGHT_WARM_SWITCH     2
+#define	ZB_DEST_ID_LIGHT1			1
+#define	ZB_DEST_ID_LIGHT2			2
+#define	ZB_DEST_ID_CHANGEAIR        1
+
+
+typedef enum
+{
+	SENSOR_TYPE_IR =1,
+	SENSOR_TYPE_BEAM=2,
+	SENSOR_TYPE_TEMPR=3,
+	SENSOR_TYPE_HUMIDITY=4,
+	SENSOR_TYPE_CO2,
+	SENSOR_TYPE_TVOC,
+	SENSOR_TYPE_COMBUSTIBLE,
+	SENSOR_TYPE_SMOKE,
+	SENSOR_TYPE_MAX
+} sensor_type_def_e;
+
+typedef enum
+{
+	ZIGBEE_ATTRIBUTE_STATE=0x0000,
+	ZIGBEE_SOFTWARE_VERSION=0x0001,
+	ZIGBEE_HARDWARE_VERSION=0x0003,
+	ZIGBEE_DEVICE_TYPE=0x0005,
+	ZIGBEE_ATTRIBUTE_MAX
+} zigbee_attribute_id_e;
+
+typedef enum
+{
+    LED_COLOR_RED,
+    LED_COLOR_GREEN,
+    LED_COLOR_BLUE,
+    LED_COLOR_WHITE,
+    LED_COLOR_MAX
+} panel_led_color_type_e;
+
+typedef struct _LED_COLOR_S
+{
+	uint8_t r;
+	uint8_t g;
+	uint8_t b;
+	uint8_t w;
+}LED_COLOR_T;
+
+
+typedef enum
+{
+    ZB_TYPE_WARM_WIND=1,
+    ZB_TYPE_LIGHT_WARM=2,
+    ZB_TYPE_LIGHT=3,
+    ZB_TYPE_CHANGEAIR=4,
+    ZB_TYPE_SINGLE_LIGHT=5,
+    ZB_TYPE_DOUBLE_LIGHT=6,
+    ZB_TYPE_THREE_LIGHT=7,
+    ZB_TYPE_SCENEPANEL=8,
+    ZB_TYPE_KITCHEN_PANEL=9,
+    ZB_TYPE_INTEGRATE=299,
+    ZB_TYPE_DEVICE_TYPE_MAX
+} ZIGBEE_DEVICE_TYPE_E;
+
+typedef enum
+{
+    SENSOR_LEVEL_1,
+    SENSOR_LEVEL_2,
+    SENSOR_LEVEL_3,
+    SENSOR_LEVEL_4,
+    SENSOR_LEVEL_MAX
+} sensor_level_type_e;
+
+
+typedef struct _ZB_DE_JOINED_REQUEST_T
+{
+	unsigned char len;
+	unsigned char dep;
+	unsigned char sep;
+	unsigned char reserved;
+	unsigned short src;
+	unsigned short pro;
+	unsigned short clu;
+	unsigned short state;
+	unsigned char payload[64];
+}ZB_DEV_JOINED_REQUEST_T;
+
+//EA80 0104 0000 01 01
+typedef struct _ZB_ZCL_ZDO_MSG_S
+{
+	unsigned short src;
+	unsigned short pro;
+	unsigned short clu;
+	unsigned char dep;
+	unsigned char sep;
+}ZB_ZCL_ZDO_MSG_T;
+
+typedef struct _SENSOR_LINKAGE_PARAM_S
+{
+	mico_mutex_t  sensorparam_mutex;
+	uint8_t co2_linkage_flag;
+	uint8_t tvoc_linkage_flag;
+	uint8_t ir_linkage_flag;
+	uint8_t smoke_linkage_flag;
+	uint8_t combustible_linkage_flag;
+	int32_t   lightrayvalue;
+	int32_t   ir_value;
+}SENSOR_LINKAGE_PARAM_T;
+
+
+typedef struct _ZIGBEE_SENSOR_LINKAGE_PARAM_S
+{
+	mico_mutex_t  sensorparam_mutex;
+	uint8_t linkage_flag;
+	uint8_t airchange_linkage_flag;
+	int32_t   lightrayvalue;
+	int32_t   ir_value;
+}ZIGBEE_SENSOR_LINKAGE_PARAM_T;
+
+
+#pragma pack(1)
+
+//181B 0A 0000 20 02
+typedef struct  _DEV_CTRL_ENDPOINT_STATE_S
+{
+	uint16_t attri_head;
+	uint8_t  msgflag;   // read state
+	uint16_t attri_id;
+	uint8_t  state;
+	uint8_t  attri_value;
+}DEV_CTRL_ENDPOINT_STATE_T;
+
+
+typedef struct  _DEV_ENDPOINT_STATE_S
+{
+	uint8_t  msgflag;   // read state
+	uint16_t attri_id;
+	uint8_t  state;
+	uint8_t  attri_type;
+	uint8_t  attri_value;
+}DEV_ENDPOINT_STATE_T;
+
+typedef struct  _DEV_ENDPOINT_REPORT_STATE_S
+{
+	uint16_t attri_id;
+	uint8_t  attri_type;
+	uint8_t  str_len;
+	uint8_t  attri_value;
+}DEV_ENDPOINT_REPORT_STATE_T;
+
+
+//184B 0A 0500 42 02 31 35
+//1820 0A 0500 42 02 31 35
+typedef struct  _DEV_ENDPOINT_JOIN_REPORT_S
+{
+	uint16_t attri_flag;
+	uint8_t  attri_undef;
+	uint16_t attri_id;
+	uint8_t  attri_type;
+	uint8_t  str_len;
+	uint8_t  attri_value[3];
+}DEV_ENDPOINT_JOIN_REPORT_T;
+
+typedef struct  _ZIGBEE_DEV_JOIN_PARAM_S
+{
+	uint8_t  attri_undef;
+	uint16_t nwk_id;
+	uint8_t  mac[ZIGBEE_DEVICE_MAC_ADDRESS_LENGHT];
+	uint8_t  crc;
+}ZIGBEE_DEV_JOIN_PARAM_T;
+
+typedef struct  _ZIGBEE_DEV_JOIN_PARAM_S2
+{
+	uint8_t   frame_t;
+	uint16_t mfr_code;
+	uint8_t   serial_num;
+	uint8_t   cmd;
+	uint8_t   mac[ZIGBEE_DEVICE_MAC_ADDRESS_LENGHT];
+	uint8_t   dev_cnt;
+	uint8_t   dev_type;
+	uint8_t   endpiont_payload[64];
+}ZIGBEE_DEV_JOIN_PARAM_T2;
+
+typedef struct  _DEV_SENSOR_REPORT_STATE_S
+{
+	uint16_t attri_id;
+	uint8_t  attri_type;
+	int16_t  attri_value;
+	uint16_t attri_id2;
+	uint8_t  attri_type2;
+	int16_t  attri_value2;
+}DEV_SENSOR_REPORT_STATE_T;
+
+typedef struct _DEV_SCENE_INFO_PARAM_S
+{
+	uint8_t frameType;
+	uint8_t pkNum;	
+	uint8_t cmdID;
+	unsigned short groupID;
+	uint8_t sceneID;
+	uint16_t reserve;
+}DEV_SCENE_INFO_PARAM_T;
+
+
+
+#pragma pack()
+
+typedef struct _KEY_BUTTON_CTRL_PARAM_S
+{
+       char cmd[96];
+	char deviceid[37];
+	unsigned int inBufLen;
+	int dev_stata;
+	cJSON *root;
+	cJSON *array;
+	cJSON *object;
+	char *pJsonStr;
+	int i;
+	int brightnessvalue;
+	unsigned short netaddr;
+	unsigned char  joined_st; 
+	unsigned char scene_config;
+	unsigned char  dev_dest_id; 
+	unsigned char dev_onoffline;
+	unsigned char key_id;
+	unsigned char zb_logout_allow_st;
+	unsigned char device_type;
+	unsigned char light_onoff_flag;
+}KEY_BUTTON_CTRL_PARAM_T;
+
+
+int uart_zigbee_recv_start( app_context_t *app_context );
+OSStatus uart_zigbee_msg_insertinto_queue( cJSON *pRoot );
+void zigbee_create_net();
+void zigbee_send_pjoin();
+void zigbee_init();
+int rs485_sensor_linkageInit();
+int uart_zigbee_queue_init();
+unsigned short ChangeEndian16(unsigned short value);
+unsigned int charchangehex( unsigned char *data , unsigned char* value );
+void zigbee_device_delete_from_net(uint16_t dwNet);
+void rs485_device_delete_from_net(uint16_t dwNet);
+
+#endif
+

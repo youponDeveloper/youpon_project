@@ -1,0 +1,437 @@
+/**
+******************************************************************************
+* @file    user_uart.c
+* @author  hehx_ybzn@163.com
+* @version V1.0.0
+* @date    12-oct-2016
+* @brief   Define uart communition to zigbee coordinator interface.
+******************************************************************************
+* @attention
+*
+******************************************************************************
+*/ 
+
+#include <stdio.h>
+
+#include "mico.h"
+#include "rs485_uart.h"
+#include "user_config.h"
+#include "rs485_comm.h"
+#include "zigbeeparse.h"
+#include "system_internal.h"
+
+#define rs485_uart_log(M, ...) custom_log("RS485_UART", M, ##__VA_ARGS__)
+#define rs485_uart_log_trace() custom_log_trace("RS485_UART")
+
+#define	RS485_STEP_SUCCESS	0xFFFF
+#define	RS485_STEP_FAILURE	0xEEEE
+
+
+#define  UART_IDLE_TIME_SENSOR_REQUEST	(5*2)
+#define  UART_IDLE_TIME_DEVICE_REQUEST	(10*20)
+#define   SENSOR_REQUEST_STATE_INTERNAL_TIMES	(3)
+
+
+static volatile ring_buffer_t  rs485_rx_buffer;
+static volatile uint8_t        rs485_rx_data[RS485_UART_BUFFER_LENGTH];
+
+mico_semaphore_t uart_idle_irq_sem;
+mico_semaphore_t uart_idle_irq_sem2;
+
+
+struct rs485_appuart_rcvst {
+	uint8_t buf[RS485_READ_UART_BUFFER_LENGTH+1];
+	int len;
+	int head;
+};
+
+static struct rs485_parse_param   rs485parseparam;
+	
+extern void HexDump(uint8_t * pdata, uint32_t data_len);
+extern unsigned int charchangehex( unsigned char *data , unsigned char* value );
+extern OSStatus user_uartSend(unsigned char *inBuf, unsigned int inBufLen);
+extern OSStatus  rs485_msg_zcl_zdo(cJSON *root);
+extern app_context_t*  get_app_context();
+extern unsigned short ChangeEndian16(unsigned short value);
+
+void rs485_gpio_send_enable(int enable_flag)
+{  
+	if(!enable_flag)
+	{
+		 MicoGpioOutputLow( RS485_RXTX_ENABLE);
+	}
+	else
+	{
+		MicoGpioOutputHigh( RS485_RXTX_ENABLE);
+	}
+}
+
+OSStatus rs485_uartInit(void)
+{
+	OSStatus err = kUnknownErr;
+	mico_uart_config_t uart_config;
+	mico_rtos_init_semaphore( &uart_idle_irq_sem, 1 );
+	rs485_gpio_send_enable(0);
+	
+	//USART init
+	uart_config.baud_rate    = 57600;
+	uart_config.data_width   = DATA_WIDTH_8BIT;
+	uart_config.parity       = NO_PARITY;
+	uart_config.stop_bits    = STOP_BITS_1;
+	uart_config.flow_control = FLOW_CONTROL_DISABLED;
+	uart_config.flags = UART_WAKEUP_DISABLE;
+	ring_buffer_init( (ring_buffer_t *)&rs485_rx_buffer, (uint8_t *)rs485_rx_data, RS485_UART_BUFFER_LENGTH );
+
+	err = MicoUartInitialize( RS485_UART, &uart_config, (ring_buffer_t *)&rs485_rx_buffer );
+	rs485_uart_log("err=%d \n", err);
+  
+  	return kNoErr;
+}
+
+OSStatus rs485_uartSend(unsigned char *inBuf, unsigned int inBufLen)
+{
+	OSStatus err = kUnknownErr;
+	
+	if( (NULL == inBuf) || ( USER_NUMBER_VAL_0 == inBufLen) )
+	{
+		err = kParamErr;
+		rs485_uart_log("ERROR: user_uartSend input params error!");
+		return err;
+	}
+	
+#ifdef USER_DEBUG_
+	//rs485_uart_log("rs485 send: [%ld]:\n", inBufLen);
+	//HexDump(inBuf, inBufLen);
+#endif
+
+	rs485_gpio_send_enable(USER_NUMBER_VAL_1);
+	err = MicoUartSend(RS485_UART, inBuf, inBufLen);
+	MicoNanosendDelay(inBufLen*RS485_ByteTimeUs*MAX_TIME_CONVERT);
+	rs485_gpio_send_enable(USER_NUMBER_VAL_0);
+	
+	return kNoErr;
+}
+
+uint32_t rs485_uartRecv(unsigned char *outBuf, unsigned int getLen)
+{
+	if( (NULL == outBuf) || (USER_NUMBER_VAL_0 == getLen) )
+	{
+		rs485_uart_log("ERROR: rs485_uartRecv input params error!");
+		return USER_NUMBER_VAL_0;
+	}
+	
+	//rs485_uart_log("getLen=%d \n", getLen);
+	if( MicoUartRecv( RS485_UART, outBuf, 1, RS485_UART_RECV_TIMEOUT) == kNoErr)
+	{
+		return 1;
+	}
+	
+	return 0;
+}
+
+int Rs485RecvUartPkt(uint8_t *buffer, uint32_t *buf_len)
+{
+
+	while(rs485_uartRecv(&buffer[*buf_len], 1)==USER_NUMBER_VAL_1) 
+	{		
+		//rs485_uart_log("index =%d : %02X ", *buf_len, buffer[*buf_len]);
+		switch(rs485parseparam.step) 
+		{
+		case USER_NUMBER_VAL_0:
+			if(buffer[*buf_len] == RS485_HEADER1)
+			{
+				rs485parseparam.step = USER_NUMBER_VAL_1;
+				 (*buf_len)++;
+			}
+			else
+			{
+				memset(&rs485parseparam, 0, sizeof(struct rs485_parse_param));
+				*buf_len=USER_NUMBER_VAL_0;
+			}
+			break;	
+		case USER_NUMBER_VAL_1:
+			if(buffer[*buf_len] == RS485_HEADER2)
+			{
+				rs485parseparam.step=USER_NUMBER_VAL_2;
+				 (*buf_len)++;
+			}
+			else
+			{
+				memset(&rs485parseparam, 0, sizeof(struct rs485_parse_param));
+				*buf_len = USER_NUMBER_VAL_0;
+			}
+			break;
+				
+		case USER_NUMBER_VAL_2:
+			if(buffer[*buf_len] == RS485_HEADER3)
+			{
+				rs485parseparam.step = USER_NUMBER_VAL_3;
+				 (*buf_len)++;
+			}
+			else
+			{
+				memset(&rs485parseparam, 0, sizeof(struct rs485_parse_param));
+				*buf_len = USER_NUMBER_VAL_0;
+			}
+			break;
+		case USER_NUMBER_VAL_3:
+			rs485parseparam.data_len = buffer[*buf_len] << USER_NUMBER_VAL_8;
+			(*buf_len)++;
+			rs485parseparam.step = USER_NUMBER_VAL_4;
+			break;
+		case USER_NUMBER_VAL_4:	
+		{
+			rs485parseparam.data_len += buffer[*buf_len];
+			(*buf_len)++;
+			rs485parseparam.step = USER_NUMBER_VAL_5;
+			rs485parseparam.recv_len = USER_NUMBER_VAL_0;
+			if(rs485parseparam.data_len > USER_NUMBER_VAL_3)
+				rs485parseparam.data_len -= USER_NUMBER_VAL_3;//start 0...
+
+			if(rs485parseparam.data_len > USER_NUMBER_VAL_255)
+			{
+				rs485_uart_log("package invalid.[data_len=%d]\n", rs485parseparam.data_len);
+				memset(&rs485parseparam, 0, sizeof(struct rs485_parse_param));
+				*buf_len = USER_NUMBER_VAL_0;
+			}
+		}
+		break;
+		case USER_NUMBER_VAL_5:
+		{
+			if(rs485parseparam.recv_len++ <= rs485parseparam.data_len)
+			{
+				(*buf_len)++;
+			}
+			else
+			{
+				rs485parseparam.wCrc = getCRC8(&buffer[3], *buf_len-USER_NUMBER_VAL_3);//FrameHeader
+				if(USER_NUMBER_VAL_FF == buffer[*buf_len] || rs485parseparam.wCrc == buffer[*buf_len])
+				{
+					(*buf_len)++;
+					rs485parseparam.step = RS485_STEP_SUCCESS;
+				}
+				else
+				{
+					memset(&rs485parseparam, 0, sizeof(struct rs485_parse_param));
+					*buf_len = USER_NUMBER_VAL_0;
+				}
+			}
+		}
+		break;
+		default:
+			memset(&rs485parseparam, 0, sizeof(struct rs485_parse_param));
+			*buf_len = USER_NUMBER_VAL_0;
+			break;
+		}
+
+		if(rs485parseparam.step == RS485_STEP_SUCCESS)
+		{
+			return *buf_len;
+		}
+	}
+
+	return USER_NUMBER_VAL_0;
+}
+
+
+
+void rs485_uart_data_recv(mico_thread_arg_t arg )
+{
+	uint32_t recv_len = USER_NUMBER_VAL_0;
+	uint32_t buffer_len = 0;
+	cJSON *root;
+	char  *recvbuff = NULL;//[RS485_READ_UART_BUFFER_LENGTH+USER_NUMBER_VAL_1]={USER_NUMBER_VAL_0};
+	recvbuff = malloc(RS485_READ_UART_BUFFER_LENGTH+1);
+	if(NULL == recvbuff)
+	{
+		return;
+	}
+	uint8_t  sendbuff[RS485_READ_UART_BUFFER_LENGTH*2+USER_NUMBER_VAL_1];
+	int  i = 0;
+	char ch[3] = {0};
+	int  nPoint;
+
+	memset(recvbuff, 0, sizeof(recvbuff));
+	memset(&rs485parseparam, 0, sizeof(struct rs485_parse_param));
+	
+	while(1)
+	{			
+		recv_len = Rs485RecvUartPkt((uint8_t *)recvbuff, &buffer_len);
+		if(recv_len > USER_NUMBER_VAL_0)
+		{		
+			nPoint = 0;
+			recv_len -= 5;
+			memset(sendbuff, 0, sizeof(sendbuff));
+			if(recv_len > RS485_READ_UART_BUFFER_LENGTH)recv_len=RS485_READ_UART_BUFFER_LENGTH;
+				
+			for (i = 0; i < recv_len; i++)
+			{
+				memset(ch, 0, sizeof(ch));
+				sprintf(ch, "%02X", recvbuff[i+5]);
+				nPoint = i*2;	 
+				memcpy(sendbuff+nPoint, ch, 2);
+			}
+
+			root=cJSON_CreateObject();	
+			 if(root != NULL)
+			 {
+			 	cJSON_AddItemToObject(root, "t", cJSON_CreateNumber(15));
+				cJSON_AddItemToObject(root, "rs485",cJSON_CreateString((char const *)sendbuff));
+
+				uart_zigbee_msg_insertinto_queue(root);//send to parse queue
+			//	memset(recvbuff, USER_NUMBER_VAL_0, RS485_READ_UART_BUFFER_LENGTH);
+			//	sprintf(recvbuff, "cus rs485 rx {%s}\r\n", sendbuff);
+				#ifdef USER_DEBUG_
+				//	rs485_uart_log("rs485 uart recv data=%s\n", sendbuff);
+				#endif
+			//	pushAppMainRecvMsgProcess( (unsigned char *)recvbuff, strlen(recvbuff), 1);//send to zigbee queue
+			 }
+			 else
+			 {
+				rs485_uart_log("RS485 val is not json format......\n");
+			 }
+		}
+
+		memset(&rs485parseparam, 0, sizeof(struct rs485_parse_param));
+		buffer_len = 0;
+		memset(recvbuff, USER_NUMBER_VAL_0, RS485_READ_UART_BUFFER_LENGTH);
+	}
+	
+	//mico_rtos_delete_thread(NULL);
+}
+
+
+void rs485_request_get_device(uint16_t devAddr)
+{
+	RS485_CTRL_COMMAND_PARAM_T  ctrlparam;	
+	memset(&ctrlparam, USER_NUMBER_VAL_0, sizeof(RS485_CTRL_COMMAND_PARAM_T));
+
+	ctrlparam.frametype = USER_NUMBER_VAL_2;
+	ctrlparam.destinationAddress = devAddr;
+	ctrlparam.srcAddress = RS485_CTRL_ATTR_ID;
+	ctrlparam.destEndpoit = USER_NUMBER_VAL_1;
+	ctrlparam.srcEndpoit = USER_NUMBER_VAL_1;
+	ctrlparam.pileId = 0xFC00;
+	ctrlparam.cmdId = USER_NUMBER_VAL_0;
+	ctrlparam.cmd_length = USER_NUMBER_VAL_0;
+	Rs485_SendDataPackage(&ctrlparam);
+}
+
+void rs485_RequestOneNotIRSensorState()
+{
+	static int idx = 0;
+	
+	uint16_t device_addr, devicetype;
+	uint8_t dev_offine_times, is_can_add, riu;
+	app_context_t* app_context = get_app_context();
+
+	if(!app_context)
+	{
+		rs485_uart_log("app_context is NULL.\n");
+		return ;
+	}
+	
+	if(idx >= SENSOR_INFO_LIST_MAX)
+		idx = 0;
+
+	
+	for(; idx < SENSOR_INFO_LIST_MAX; idx++)// if idx == SENSOR_INFO_LIST_MAX,not need strat from 0.
+	{
+			mico_rtos_lock_mutex(&app_context->userDataStore->sensor_info_mutex);
+			devicetype = app_context->userDataStore->userData.deviceinfo.sensor_info[idx].chnl[5].dev_type;//find not ir SENDOR
+			is_can_add = app_context->userDataStore->userData.deviceinfo.sensor_info[idx].is_used;
+			device_addr = app_context->userDataStore->userData.deviceinfo.sensor_info[idx].net_addr;
+			dev_offine_times = app_context->userDataStore->userData.deviceinfo.sensor_info[idx].dev_offine_times;
+			riu = app_context->userDataStore->userData.deviceinfo.sensor_info[idx].riu;
+			app_context->userDataStore->userData.deviceinfo.sensor_info[idx].dev_offine_times += 1;
+			mico_rtos_unlock_mutex(&app_context->userDataStore->sensor_info_mutex);
+			//rs485_uart_log( " i:%d  devicetype : %d is_can_add:%d  device_addr:%x ,dev_offine_times:%d",idx, devicetype,is_can_add,device_addr,dev_offine_times);
+
+			if((devicetype != SENSOR_TYPE_IR) &&(is_can_add==1)&& device_addr !=0 && device_addr != 0xFFFF && riu == 0)
+			{
+				if(dev_offine_times > 24)
+				{
+					mico_rtos_lock_mutex(&app_context->userDataStore->sensor_info_mutex);
+					app_context->userDataStore->userData.deviceinfo.sensor_info[idx].dev_onoffline = 0;
+					mico_rtos_unlock_mutex(&app_context->userDataStore->sensor_info_mutex);
+				}
+				else
+				{
+					//rs485_uart_log(" device_addr:%04x ",device_addr);
+					rs485_request_get_device(device_addr);
+					idx++;
+					break;
+				}
+			}		
+	}
+
+}
+
+void rs485_RequestIRSensorState()
+{
+	int i;
+	uint16_t device_addr, devicetype;
+	uint8_t is_can_add, riu;
+	app_context_t* app_context = get_app_context();
+
+	if(!app_context)
+	{
+		rs485_uart_log("app_context is NULL.\n");
+		return ;
+	}
+	
+	for(i = 0 ; i < SENSOR_INFO_LIST_MAX; i++)
+	{		
+		mico_rtos_lock_mutex(&app_context->userDataStore->sensor_info_mutex);
+		devicetype = app_context->userDataStore->userData.deviceinfo.sensor_info[i].chnl[5].dev_type;//find not ir SENDOR
+		is_can_add = app_context->userDataStore->userData.deviceinfo.sensor_info[i].is_used;
+		device_addr = app_context->userDataStore->userData.deviceinfo.sensor_info[i].net_addr;
+		riu = app_context->userDataStore->userData.deviceinfo.sensor_info[i].riu;
+
+		mico_rtos_unlock_mutex(&app_context->userDataStore->sensor_info_mutex);
+		//rs485_uart_log( " i:%d  devicetype : %d is_can_add:%d  device_addr:%x",i, devicetype,is_can_add,device_addr);
+
+		if((devicetype == SENSOR_TYPE_IR) &&(is_can_add==1)&& device_addr !=0 && device_addr != 0xFFFF && riu == 0)
+		{
+
+			//rs485_uart_log(" ir device_addr:%04x ",device_addr);
+			rs485_request_get_device(device_addr);
+		}
+	}
+	
+}
+
+void rs485_RequestSensorState()
+{	
+	int i;
+
+	for(i = 0 ; i < SENSOR_INFO_LIST_MAX; i++)
+	{
+		rs485_RequestIRSensorState();
+		rs485_RequestOneNotIRSensorState();	
+		mico_rtos_thread_msleep(300);
+	}
+}
+
+void request_DeviceState(mico_thread_arg_t arg)
+{
+	UNUSED_PARAMETER( arg );
+
+	//char *str= "cus scene write {00000006010800000020010208000000200004060000001001050600000010000608000000200107060000001000}\r\nsend 0x5e93 1 1";
+	while(USER_NUMBER_VAL_1)
+	{
+		rs485_RequestSensorState();
+		mico_rtos_thread_sleep(1);
+#ifdef USER_DEBUG_
+	//	if(strncmp(str, "cus scene write", 15)==0)
+	//	{
+	//		rs485_uart_log("cus scene write:%s", str);
+	//		parse_write_scene_info(str+16);
+	//	}
+
+		rs485_uart_log("OTA TEST #####user_main#####:num_of_chunks:%d, free:%d", MicoGetMemoryInfo()->num_of_chunks, /*MicoGetMemoryInfo()->total_memory,MicoGetMemoryInfo()->allocted_memory,*/ MicoGetMemoryInfo()->free_memory);
+#endif
+	}
+}
+
+

@@ -1,0 +1,76 @@
+###############################################################################
+#
+# IAR ELF Linker V7.30.4.8167/W32 for ARM                 05/Jan/2018  11:01:49
+# Copyright 2007-2014 IAR Systems AB.
+#
+#    Output file  =  
+#        E:\workplace\gitYonpon_Project\youpon_project\Projects\MW3xx\demo\EWARM\MK3031\Exe\flash_all_EMW3031.out
+#    Map file     =  
+#        E:\workplace\gitYonpon_Project\youpon_project\Projects\MW3xx\demo\EWARM\MK3031\List\flash_all_EMW3031.map
+#    Command line =  
+#        E:\workplace\gitYonpon_Project\youpon_project\Projects\MW3xx\demo\EWARM\MK3031\Obj\flashall.o
+#        -o
+#        E:\workplace\gitYonpon_Project\youpon_project\Projects\MW3xx\demo\EWARM\MK3031\Exe\flash_all_EMW3031.out
+#        --keep MYSYM
+#        --image_input=E:\workplace\gitYonpon_Project\youpon_project\Projects\MW3xx\demo\EWARM\MK3031\Exe\full.bin,MYSYM,MYSEC,8
+#        --map
+#        E:\workplace\gitYonpon_Project\youpon_project\Projects\MW3xx\demo\EWARM\MK3031\List\flash_all_EMW3031.map
+#        --config
+#        E:\workplace\gitYonpon_Project\youpon_project\Projects\MW3xx\demo\EWARM\..\..\..\..\Platform\MCU\MW3xx\interface\flash_all.icf
+#        --no_library_search --entry MYSYM --vfe
+#
+###############################################################################
+
+*******************************************************************************
+*** RUNTIME MODEL ATTRIBUTES
+***
+
+__SystemLibrary = DLib
+
+
+*******************************************************************************
+*** PLACEMENT SUMMARY
+***
+
+"A1":  place at start of [0x1f000000-0x1f200000] { section MYSEC };
+
+  Section  Kind      Address      Size  Object
+  -------  ----      -------      ----  ------
+"A1":                         0x1ddb90
+  MYSEC    const  0x1f000000  0x1ddb90  full.bin [1]
+                - 0x1f1ddb90  0x1ddb90
+
+
+
+*******************************************************************************
+*** MODULE SUMMARY
+***
+
+    Module          ro data
+    ------          -------
+E:\workplace\gitYonpon_Project\youpon_project\Projects\MW3xx\demo\EWARM\MK3031\Exe: [1]
+    full.bin      1 956 752
+    -----------------------
+    Total:        1 956 752
+
+---------------------------
+    Grand Total:  1 956 752
+
+
+*******************************************************************************
+*** ENTRY LIST
+***
+
+Entry     Address      Size  Type      Object
+-----     -------      ----  ----      ------
+MYSYM  0x1f000000  0x1ddb90  Data  Gb  full.bin [1]
+
+
+[1] = E:\workplace\gitYonpon_Project\youpon_project\Projects\MW3xx\demo\EWARM\MK3031\Exe
+[2] = E:\workplace\gitYonpon_Project\youpon_project\Projects\MW3xx\demo\EWARM\MK3031\Obj
+[3] = command line
+
+  1 956 752 bytes of readonly  data memory
+
+Errors: none
+Warnings: none

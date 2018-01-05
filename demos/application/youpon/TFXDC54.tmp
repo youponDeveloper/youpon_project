@@ -1,0 +1,376 @@
+#ifndef __USER_MAIN_H__
+#define __USER_MAIN_H__
+
+#include "mico.h"
+
+#define DEVICE_MAC_ADDRESS_LENGHT 			(12)
+#define ZIGBEE_DEVICE_MAC_ADDRESS_LENGHT 	(8)
+#define DEVICE_MAC_ENDPOINT 					(15)
+#define SENSOR_CHANL_MAX 						(8)
+#define PANEL_DEVICE_KEY_COUNT 				(12)
+#define DEVICE_INFO_LIST_MAX 					(25)
+#define PANEL_INFO_LIST_MAX 					(15)
+#define SENSOR_INFO_LIST_MAX 					(20)
+#define SCENE_CTRL_LIST_MAX 					(10)
+#define LINKAGE_CTRL_LIST_MAX 					(20)
+#define TIMER_CTRL_LIST_MAX 					(20)
+#define SCENE_CTRL_MAX_ACTION 				(20)
+#define SCENE_RECORD_PAYLOAD_LEN				64
+#define SCENE_SCENEID_MAX						4
+
+#define CTRL_BOX_DEVICE_ENDPOINT_COUNT    	(5)  
+
+#define APP_MSG_SNED_MAX_QUEUE_LENGTH    	(4)       // max num of msg in recv queue
+#define MAX_QUEUE_NUM                       6  // 1 remote client, 5 local server
+
+#define		DEVICE_ACTION_ON		"on"
+#define		DEVICE_ACTION_OFF		"off"
+
+typedef enum
+{
+    AUTO_TURN_OFF=0,
+    IR_DELAY_TURN_OFF_LIGHT,
+    ZIGBEE_IR_LIGHTRAY_LINKAGE,
+    ZIGBEE_AIRCHANGE_LINKAGE,
+    DEVICE_DELAY_SAVE,
+    TIMER_MAX
+} TIMER_CREATE_PARAM_E;
+
+typedef struct config_info_t{
+  uint8_t auth_pwd_name_buf[180];
+  uint8_t product_key_id[66];
+}xlink_config_info;
+
+typedef struct __TIMER_CREATE_PARAM_S
+{
+	uint8_t  glitter_color;//0->white;1->blue;2->green
+	uint8_t  timer_times;
+	uint8_t  timer_tmp;
+	uint8_t  timer_tmp2;
+	uint32_t  timer_interval;
+	mico_timer_t  timer;
+	uint8_t  mac[DEVICE_MAC_ADDRESS_LENGHT];
+	mico_mutex_t  source_mutex;
+}TIMER_CREATE_PARAM_T;
+
+
+ 
+typedef enum
+{
+    TVOC_EXCELLENT=0,//<50 ppb
+    TVOC_GOOD=300,//>=50 && < 750
+    TVOC_MID=750,//>=750 && <6000
+    TVOC_BAD=4000,//>6000
+} sensor_tvoc_level_t;
+
+
+typedef enum
+{
+    BEAM_DARK=0,
+    BEAM_DIM=8,
+    BEAM_OFFICE=60,
+    BEAM_BRIGHT=1500
+} sensor_beam_adc_level_t;
+
+typedef enum
+{
+    TEMP_COLD=0,
+    TEMP_COOL=14,
+    TEMP_WARM=26
+} sensor_temp_level_t;
+
+
+typedef enum
+{
+    HUMI_DESICCATION=0,
+    HUMI_COMFORT=40,
+    HUMI_MOIST=80,
+    HUMI_MAX = 100
+} sensor_humidity_level_t;
+
+typedef enum
+{
+	COMBUSTIBLE_NORMAL=260,
+	COMBUSTIBLE_MID=1000
+} sensor_combustible_level_t;
+
+
+typedef enum
+{
+	SMOKE_MID=200,
+	SMOKE_BAD=600
+} sensor_smoke_level_t;
+
+typedef enum
+{	
+	CO2_MID=3000,
+	CO2_HIGHT=5000
+} sensor_co2_level_t;
+
+typedef struct 
+{
+    int beam_min;
+    int beam_max;
+} sensor_level_range_t;
+
+
+
+typedef struct _dev_single_action_config_t
+{
+	uint8_t dev_mac[DEVICE_MAC_ADDRESS_LENGHT];
+	uint16_t nwid;
+	uint16_t clu_id;
+	int32_t param;
+	uint8_t cmd;
+	uint8_t dest_endport;
+	uint8_t valid;
+	uint8_t reserve[3];
+} dev_single_action_config_t;
+
+
+typedef struct _dev_scene_config_t
+{
+	uint8_t  belongs_dev_mac[DEVICE_MAC_ADDRESS_LENGHT];
+	uint8_t scene_id;
+	uint8_t scene_config;//0-no config, 1-configed
+	uint8_t activate_scene;
+	dev_single_action_config_t action[SCENE_CTRL_MAX_ACTION];
+	uint8_t reserve[7];
+} dev_scene_config_t;
+
+typedef struct _sensor_channel_endpoit_s
+{
+	uint32_t  dev_type;
+	uint32_t  value;
+	uint8_t   alloc_flag;
+	uint8_t    reserve[3];
+} sensor_channel_endpoit_t;
+
+typedef struct _sensor_info_list_s
+{
+	uint8_t   id;
+	uint8_t mac[DEVICE_MAC_ADDRESS_LENGHT];
+	uint16_t net_addr;
+	uint32_t dev_class;
+	sensor_channel_endpoit_t chnl[SENSOR_CHANL_MAX];
+	uint8_t  is_used;  // 1 is used,other not used
+	uint8_t dev_onoffline; //end point device  online or offline flag, 1-online, 0-offline
+	uint8_t dev_offine_times;
+	uint8_t riu;
+	unsigned char reserve[3];
+} sensor_info_list_t;
+
+typedef struct _panel_dev_endpoit_s
+{
+	uint32_t type;// 2: scene, 1: device type
+	uint8_t chnl_id;
+	uint8_t endpoint_id;
+	uint8_t connected; // 1->had binding to device
+	uint8_t reserve;
+} panel_dev_endpoit_t;
+
+typedef struct _panel_device_info_list_s
+{
+	uint8_t   id;
+	uint8_t mac[DEVICE_MAC_ADDRESS_LENGHT];
+	uint16_t net_addr;
+	uint32_t dev_class;
+	panel_dev_endpoit_t chnl[PANEL_DEVICE_KEY_COUNT];
+	uint8_t  is_used;  // 1 is used,other not used
+	uint8_t dev_onoffline; //end point device  online or offline flag, 1-online, 0-offline
+	uint8_t dev_virtual_onoffline;
+	uint8_t endpoint_count;
+	uint8_t  riu; 
+	unsigned char reserve[2];
+} panel_device_info_list_t;
+
+
+typedef struct _dev_channel_endpoit_s
+{
+	uint32_t dev_type;
+	uint16_t clu_id;
+	uint8_t endpoint_id;
+	uint32_t  cur_value;
+} dev_channel_endpoit_t;
+
+typedef struct _device_info_list_s
+{
+	uint8_t   id;
+	uint8_t mac[DEVICE_MAC_ADDRESS_LENGHT];
+	uint16_t net_addr;
+	uint32_t dev_class;
+	dev_channel_endpoit_t chnl[DEVICE_MAC_ENDPOINT];
+	uint8_t  is_used;  // 1 is used,other not used
+	uint8_t dev_onoffline; //end point device  online or offline flag, 1-online, 0-offline
+	uint8_t  riu; 
+} device_info_list_t;
+
+typedef struct _linkage_conditon_param_s
+{
+	char  dev_mac[DEVICE_MAC_ADDRESS_LENGHT];
+	uint8_t dev_id;
+	uint8_t chnl;//this param is sensor type
+	int8_t  cond[4];
+	int32_t param;
+	uint8_t valid;  // 1 valid, other invalid
+	uint8_t reserve[2];
+} linkage_conditon_param_t;
+
+typedef struct _linkage_dev_param_s
+{
+	uint8_t ctrl_id;
+	uint8_t  status;  	// 1=starting, 2=delete,0=stop
+	uint8_t ctrl_type; //  1->single control  2->scene control
+	uint8_t obj_id;
+	uint8_t  dev_mac[DEVICE_MAC_ADDRESS_LENGHT];
+	char  ctrl_name[24];
+	char env_cond[4];
+	linkage_conditon_param_t condition[4];
+	int32_t cmd;
+	int32_t param;
+	uint8_t happend;
+	uint8_t reserve[4];
+} linkage_dev_param_t;
+
+typedef struct _timer_ctrl_info_s
+{
+	char  ctrl_name[24];
+	uint8_t ctrl_id;
+	uint8_t  status;  // 1=starting, 2=delete,  0=stop
+	uint32_t timer_time_start;
+	uint32_t timer_inter;
+	uint32_t action_times;
+	uint8_t timer_week;
+	uint32_t timer_time_exe;
+	uint32_t timer_time_stop;
+	uint8_t ctrl_type;
+	uint32_t obj_id;
+	uint32_t cmd;
+	uint32_t value;
+	uint8_t mac[DEVICE_MAC_ADDRESS_LENGHT];
+} timer_ctrl_info_t;
+
+typedef struct _device_info_config_t
+{
+	device_info_list_t device_info[DEVICE_INFO_LIST_MAX];
+	sensor_info_list_t sensor_info[SENSOR_INFO_LIST_MAX];
+	unsigned short panid;
+	unsigned char reserve[6];
+} device_info_config_t;
+
+#pragma pack(1)
+typedef struct _scene_status_record_t
+{
+	uint8_t endpoint_id;
+	uint16_t clu_id;
+	uint16_t attri_id;
+	uint8_t attri_type;
+	uint8_t  cur_value;
+} scene_status_record_t;
+#pragma pack()
+
+typedef struct
+{
+	uint16_t net_addr;
+	uint16_t classid;
+	uint8_t cnt;
+	uint8_t payload[SCENE_RECORD_PAYLOAD_LEN];//50 test
+}scene_dev_list_t;
+
+typedef struct _scene_ctrl_config_t
+{
+	uint16_t groupId;
+	uint8_t sceneId;
+	scene_dev_list_t devlist[DEVICE_INFO_LIST_MAX];
+}scene_ctrl_config_t;
+
+
+
+typedef struct _scene_write_info_t
+{
+	uint16_t groupId;
+	uint8_t sceneId ;
+	uint8_t statusCount;	
+	uint8_t recordPayload[256];
+
+}scene_write_info_t;
+
+
+
+/*Application's configuration stores in flash*/
+typedef struct
+{
+	uint32_t          configDataVer;
+	uint32_t          localServerPort;
+
+	/*local services*/
+	bool              localServerEnable;
+	bool              remoteServerEnable;
+	char              remoteServerDomain[64];
+	int               remoteServerPort;
+	xlink_config_info xlinkconfig;
+
+#if 0
+	mico_mutex_t  scene_info_mutex;
+	mico_mutex_t linkagectrl_mutex;
+	mico_mutex_t timerinfo_mutex;
+	device_info_config_t deviceinfo;
+	//dev_scene_config_t scene_info[SCENE_CTRL_LIST_MAX];
+	linkage_dev_param_t linkagectrl[LINKAGE_CTRL_LIST_MAX];
+	timer_ctrl_info_t timerinfo[TIMER_CTRL_LIST_MAX];
+#endif
+	
+} application_config_t;
+
+
+typedef struct
+{
+	device_info_config_t deviceinfo;
+	linkage_dev_param_t linkagectrl[LINKAGE_CTRL_LIST_MAX];
+	timer_ctrl_info_t timerinfo[TIMER_CTRL_LIST_MAX];
+	scene_ctrl_config_t	 scenectrl[SCENE_SCENEID_MAX];
+} user_data_in_flash_t;
+
+typedef struct
+{
+	mico_mutex_t  scene_info_mutex;
+	mico_mutex_t linkagectrl_mutex;
+	mico_mutex_t timerinfo_mutex;
+	mico_mutex_t  device_info_mutex;
+	mico_mutex_t  panel_info_mutex;
+	mico_mutex_t  sensor_info_mutex;
+	
+	user_data_in_flash_t userData;
+} user_data_store_t;
+
+
+/*Running status*/
+typedef struct  {
+	  /*Local clients port list*/
+	  mico_queue_t*   socket_out_queue[MAX_QUEUE_NUM];
+	  mico_mutex_t    queue_mtx;
+} current_app_status_t;
+
+typedef struct _app_context_t
+{
+	/*Flash content*/
+	application_config_t*     appConfig;
+	user_data_store_t *      userDataStore;
+	/*Running status*/
+	current_app_status_t      appStatus;
+} app_context_t;
+
+OSStatus user_application( app_context_t * const app_context );
+void zigbee_airchange_timerStop();
+void zigbee_airchange_timerStart();
+void zigbee_ir_lightray_timerStop();
+void zigbee_ir_lightray_timerStart(uint8_t mac[]);
+void dev_linkage_airchange_timerStop();
+void dev_linkage_airchange_timerStart(uint8_t color_status);
+void sensor_ir_timerStop();
+void sensor_ir_timerStart( );
+void device_delay_save_timerStart();
+void setMacAddress();
+
+#endif
+

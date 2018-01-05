@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+
+<project>
+  <fileVersion>2</fileVersion>
+  <fileChecksum>3718430535</fileChecksum>
+  <configuration>
+    <name>EMW3031</name>
+    <outputs>
+      <file>$PROJ_DIR$\EMW3031\List\flash_all_EMW3031.map</file>
+      <file>$PROJ_DIR$\EMW3031\Obj\flashall.pbi</file>
+      <file>$PROJ_DIR$\..\..\..\..\platform\MCU\MW3xx\interface\flashall.c</file>
+      <file>$PROJ_DIR$\EMW3031\Exe\flash_all_EMW3031.out</file>
+      <file>$PROJ_DIR$\..\..\..\..\..\MiCO_B_v3.2.3\Projects\MW3xx\demo\EWARM\MK3031\Exe\full.bin</file>
+      <file>$PROJ_DIR$\..\..\..\..\platform\MCU\MW3xx\interface\flash_all.icf</file>
+      <file>$PROJ_DIR$\EMW3031\Obj\flashall.o</file>
+    </outputs>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\..\platform\MCU\MW3xx\interface\flashall.c</name>
+      <outputs>
+        <tool>
+          <name>ICCARM</name>
+          <file> 6</file>
+        </tool>
+        <tool>
+          <name>BICOMP</name>
+          <file> 1</file>
+        </tool>
+      </outputs>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\EMW3031\Exe\flash_all_EMW3031.out</name>
+      <outputs>
+        <tool>
+          <name>ILINK</name>
+          <file> 0</file>
+        </tool>
+      </outputs>
+      <inputs>
+        <tool>
+          <name>ILINK</name>
+          <file> 5 4 6</file>
+        </tool>
+      </inputs>
+    </file>
+    <file>
+      <name>[ROOT_NODE]</name>
+      <outputs>
+        <tool>
+          <name>ILINK</name>
+          <file> 0 3</file>
+        </tool>
+      </outputs>
+    </file>
+  </configuration>
+  <configuration>
+    <name>EMW5031</name>
+    <outputs>
+      <file>$PROJ_DIR$\..\..\..\..\platform\MCU\MW3xx\interface\flashall.c</file>
+      <file>$PROJ_DIR$\EMW5031\Obj\flashall.pbi</file>
+      <file>$PROJ_DIR$\EMW5031\Exe\flash_all_EMW3031.out</file>
+      <file>$PROJ_DIR$\EMW5031\Obj\flashall.o</file>
+    </outputs>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\..\platform\MCU\MW3xx\interface\flashall.c</name>
+      <outputs>
+        <tool>
+          <name>ICCARM</name>
+          <file> 3</file>
+        </tool>
+        <tool>
+          <name>BICOMP</name>
+          <file> 1</file>
+        </tool>
+      </outputs>
+    </file>
+    <file>
+      <name>[ROOT_NODE]</name>
+      <outputs>
+        <tool>
+          <name>ILINK</name>
+          <file> 2</file>
+        </tool>
+      </outputs>
+    </file>
+    <forcedrebuild>
+      <name>[MULTI_TOOL]</name>
+      <tool>ILINK</tool>
+    </forcedrebuild>
+  </configuration>
+  <configuration>
+    <name>MK3031</name>
+    <outputs>
+      <file>$PROJ_DIR$\..\..\..\..\platform\MCU\MW3xx\interface\flashall.c</file>
+      <file>$PROJ_DIR$\MK3031\Exe\flash_all_EMW3031.out</file>
+      <file>$PROJ_DIR$\MK3031\Obj\flashall.pbi</file>
+      <file>$PROJ_DIR$\..\..\..\..\platform\MCU\MW3xx\interface\flash_all.icf</file>
+      <file>$PROJ_DIR$\MK3031\Obj\flashall.o</file>
+      <file>$PROJ_DIR$\MK3031\Exe\full.bin</file>
+      <file>$PROJ_DIR$\MK3031\List\flash_all_EMW3031.map</file>
+      <file>$PROJ_DIR$\MK3031\Obj\download_flashall.pbd</file>
+      <file>$PROJ_DIR$\..\..\..\..\demos\application\youpon\MICOAppEntrance.c</file>
+    </outputs>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\..\platform\MCU\MW3xx\interface\flashall.c</name>
+      <outputs>
+        <tool>
+          <name>ICCARM</name>
+          <file> 4</file>
+        </tool>
+        <tool>
+          <name>BICOMP</name>
+          <file> 2</file>
+        </tool>
+      </outputs>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\MK3031\Exe\flash_all_EMW3031.out</name>
+      <outputs>
+        <tool>
+          <name>ILINK</name>
+          <file> 6</file>
+        </tool>
+      </outputs>
+      <inputs>
+        <tool>
+          <name>ILINK</name>
+          <file> 3 5 4</file>
+        </tool>
+      </inputs>
+    </file>
+    <file>
+      <name>[ROOT_NODE]</name>
+      <outputs>
+        <tool>
+          <name>ILINK</name>
+          <file> 1 6</file>
+        </tool>
+      </outputs>
+    </file>
+  </configuration>
+</project>
+
+

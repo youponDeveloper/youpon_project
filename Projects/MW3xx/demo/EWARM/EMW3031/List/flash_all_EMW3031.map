@@ -1,0 +1,83 @@
+###############################################################################
+#
+# IAR ELF Linker V7.30.4.8167/W32 for ARM                 27/Sep/2017  10:41:19
+# Copyright 2007-2014 IAR Systems AB.
+#
+#    Output file  =  
+#        E:\dev\MiCO_B_v3.2.3 -
+#        副本\Projects\MW3xx\demo\EWARM\EMW3031\Exe\flash_all_EMW3031.out
+#    Map file     =  
+#        E:\dev\MiCO_B_v3.2.3 -
+#        副本\Projects\MW3xx\demo\EWARM\EMW3031\List\flash_all_EMW3031.map
+#    Command line =  
+#        "E:\dev\MiCO_B_v3.2.3 -
+#        副本\Projects\MW3xx\demo\EWARM\EMW3031\Obj\flashall.o" -o
+#        "E:\dev\MiCO_B_v3.2.3 -
+#        副本\Projects\MW3xx\demo\EWARM\EMW3031\Exe\flash_all_EMW3031.out"
+#        --keep MYSYM
+#        --image_input=E:\dev\MiCO_B_v3.2.3\Projects\MW3xx\demo\EWARM\MK3031\Exe\full.bin,MYSYM,MYSEC,8
+#        --map "E:\dev\MiCO_B_v3.2.3 -
+#        副本\Projects\MW3xx\demo\EWARM\EMW3031\List\flash_all_EMW3031.map"
+#        --config "E:\dev\MiCO_B_v3.2.3 -
+#        副本\Projects\MW3xx\demo\EWARM\..\..\..\..\Platform\MCU\MW3xx\interface\flash_all.icf"
+#        --no_library_search --entry MYSYM --vfe
+#
+###############################################################################
+
+*******************************************************************************
+*** RUNTIME MODEL ATTRIBUTES
+***
+
+__SystemLibrary = DLib
+
+
+*******************************************************************************
+*** PLACEMENT SUMMARY
+***
+
+"A1":  place at start of [0x1f000000-0x1f200000] { section MYSEC };
+
+  Section  Kind      Address      Size  Object
+  -------  ----      -------      ----  ------
+"A1":                         0x1ddb90
+  MYSEC    const  0x1f000000  0x1ddb90  full.bin [2]
+                - 0x1f1ddb90  0x1ddb90
+
+
+
+*******************************************************************************
+*** MODULE SUMMARY
+***
+
+    Module          ro data
+    ------          -------
+E:\dev\MiCO_B_v3.2.3 - 副本\Projects\MW3xx\demo\EWARM\EMW3031\Obj: [1]
+    -----------------------
+    Total:
+
+E:\dev\MiCO_B_v3.2.3\Projects\MW3xx\demo\EWARM\MK3031\Exe: [2]
+    full.bin      1 956 752
+    -----------------------
+    Total:        1 956 752
+
+---------------------------
+    Grand Total:  1 956 752
+
+
+*******************************************************************************
+*** ENTRY LIST
+***
+
+Entry     Address      Size  Type      Object
+-----     -------      ----  ----      ------
+MYSYM  0x1f000000  0x1ddb90  Data  Gb  full.bin [2]
+
+
+[1] = E:\dev\MiCO_B_v3.2.3 - 副本\Projects\MW3xx\demo\EWARM\EMW3031\Obj
+[2] = E:\dev\MiCO_B_v3.2.3\Projects\MW3xx\demo\EWARM\MK3031\Exe
+[3] = command line
+
+  1 956 752 bytes of readonly  data memory
+
+Errors: none
+Warnings: none
