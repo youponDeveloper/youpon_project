@@ -46,6 +46,7 @@ extern app_context_t* app_context_global ;
 #define   ZB_MSG_INTER_PAN_LOGOUT					100
 #define   ZB_MSG_DEVICE_LOGOUT_MODE				13
 #define	ZB_MSG_CLEAR_DEVICE_INFO					16
+#define	ZB_MSG_WIND_LIGHT_WARM_RUN_TIME		19
 
 extern app_context_t* app_context_global;
 
@@ -1273,7 +1274,9 @@ OSStatus uart_zigbee_msg_dispatch(cJSON *root, int *code)
 			zigbee_msg_clear_device_info(root);
 			needsend = 1;
 			break; 
-
+		case ZB_MSG_WIND_LIGHT_WARM_RUN_TIME:		//19
+			needsend = 1;
+			break; 
 		default:
 			user_zigbee("unkown msg type!");
 			break;
